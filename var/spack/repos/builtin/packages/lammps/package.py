@@ -369,9 +369,15 @@ class Lammps(CMakePackage, CudaPackage, ROCmPackage, PythonExtension):
         deprecated=True,
     )
 
-    depends_on("c", type="build")  # generated
-    depends_on("cxx", type="build")  # generated
-    depends_on("fortran", type="build")  # generated
+    depends_on("cxx", type="build")
+
+    # mdi, scafacos, ml-quip, qmmm require C, but not available in Spack
+    for c_pkg in ("adios", "atc", "awpmd", "ml-pod", "electrode", "kim", "h5md", "tools"):
+        depends_on("c", type="build", when=f"+{c_pkg}")
+
+    # scafacos, ml-quip require Fortran, but not available in Spack
+    for fc_pkg in ("kim",):
+        depends_on("fortran", type="build", when=f"+{fc_pkg}")
 
     stable_versions = {
         "20230802.3",
@@ -602,6 +608,7 @@ class Lammps(CMakePackage, CudaPackage, ROCmPackage, PythonExtension):
         values=("double", "mixed", "single"),
         multi=False,
     )
+    variant("tools", default=False, description="Build LAMMPS tools (msi2lmp, binary2txt, chain)")
 
     depends_on("cmake@3.16:", when="@20231121:")
     depends_on("mpi", when="+mpi")
@@ -780,6 +787,7 @@ class Lammps(CMakePackage, CudaPackage, ROCmPackage, PythonExtension):
             self.define_from_variant("LAMMPS_EXCEPTIONS", "exceptions"),
             self.define_from_variant("{}_MPI".format(mpi_prefix), "mpi"),
             self.define_from_variant("BUILD_OMP", "openmp"),
+            self.define_from_variant("BUILD_TOOLS", "tools"),
             self.define("ENABLE_TESTING", self.run_tests),
             self.define("DOWNLOAD_POTENTIALS", False),
         ]
@@ -816,15 +824,20 @@ class Lammps(CMakePackage, CudaPackage, ROCmPackage, PythonExtension):
         if spec.satisfies("%aocc"):
             if spec.satisfies("+intel"):
                 cxx_flags = (
-                    "-Ofast -fno-math-errno -fno-unroll-loops "
+                    "-O3 -fno-math-errno -fno-unroll-loops "
                     "-fveclib=AMDLIBM -muse-unaligned-vector-move"
                 )
+                if spec.satisfies("%aocc@4.1:"):
+                    cxx_flags += (
+                        " -mllvm -force-gather-overhead-cost=50"
+                        " -mllvm -enable-masked-gather-sequence=false"
+                    )
                 # add -fopenmp-simd if OpenMP not already turned on
                 if spec.satisfies("~openmp"):
                     cxx_flags += " -fopenmp-simd"
                 cxx_flags += " -DLMP_SIMD_COMPILER -DUSE_OMP_SIMD -DLMP_INTEL_USELRT"
             else:
-                cxx_flags = "-Ofast -mfma -fvectorize -funroll-loops"
+                cxx_flags = "-O3 -mfma -fvectorize -funroll-loops"
             args.append(self.define("CMAKE_CXX_FLAGS_RELEASE", cxx_flags))
             args.append(self.define("CMAKE_CXX_FLAGS_RELWITHDEBINFO", cxx_flags))
 
